@@ -29,5 +29,38 @@
     - As described, we estimate the projected 3D center rather than camera coordinates to better cope with the convolutional features based exclusively in the image space. Therefore, during inference we back-project the projected 3D center location from the image space  to camera coordinates 3D by using the inverse.
 - Loss Defination
     - The network loss of our framework is formed as a multi-task learning problem composed of classification Lc and a box regression loss for 2D and 3D, respectfully denoted as Lb2D and Lb3D .
-    - 
+    - For each generated box, we check if there exists a ground truth with at least ≥ 0.5 IoU
+        - If yes then we use the best matched ground truth for each generated box to define a target with τ class index, 2D box ˆb2D, and 3D box ˆb3D
+        -  Otherwise, τ is assigned to the catch-all background class and bounding box regression is ignored.
+        - A softmax-based multinomial logistic loss is used to supervise for Lc.
+        - We use a negative logistic loss applied to the IoU between the matched ground truth box ˆb2D and the transformed b02D 0for Lb2D
+        - The remaining 3D bounding box parameters are each optimized using a Smooth L1 [16] regression loss applied to the transformations b3D and the ground truth transformations gˆ3D
+        - Hence, the overall multi-task network loss L, including regularization weights λ1 and λ2, is denoted as:
+        L = Lc + λ1 Lb2D + λ2 Lb3D
 
+- Depth Aware Convolution
+    - We expect that low-level features in the early layers of a network can reasonably be shared and are otherwise invariant to depth or object scale
+    - However, we intuitively expect that high-level features related to 3D scene understanding are dependent on depth when a fixed camera view is assumed.
+    - The depth-aware convolution layer can be loosely summarized as regular 2D convolution where a set of discretized depths are able to learn non-shared weights and features.
+    - We introduce a hyperparameter b denoting the number of row-wise bins to separate a feature map into, where each learns a unique kernel k.
+    - Depth-aware kernels enable the network to develop location specific features and biases for each bin region, ideally to exploit the geometric consistency of a fixed viewpoint within urban scenes
+    - An obvious drawback to using depth-aware convolution is the increase of memory footprint for a given layer by ×b. However, the total theoretical FLOPS to perform convolution remains consistent regardless of whether kernels are shared
+
+- Network Architecture
+    - The backbone of our network uses DenseNet-121.
+    - We remove the final pooling layer to keep the network stride at 16, then dilate each convolutional layer in the last DenseBlock by a factor of 2 to obtain a greater field-of-view.
+    - We connect two parallel paths at the end of the backbone network.
+        - The first path uses regular convolution where kernels are shared spatially, which we refer to as global.
+        - The second path exclusively uses depth-aware convolution and is referred to as local.
+    - For each path, we append a proposal feature extraction layer using its respective convolution operation to generate Fglobal and Flocal. Each feature extraction layer generates 512 features using a 3 × 3 kernel with 1 padding and is followed by a ReLU non-linear activation.
+    - We then connect the 12 outputs to each F corresponding to c, [tx, ty, tw, th]2D, [tx, ty, tz]P, [tw, th, tl, tθ]3D.
+    - Each output uses a 1 × 1 kernel and are collectively denoted as O-global and O-local.
+    - To leverage the depth-aware and spatialinvariant strengths, we fuse each output using a learned attention α (after sigmoid) applied for i = 1 . . . 12 as follows
+
+- Post 3D -> 2D Optimization
+    - We optimize the orientation parameter θ in a simple but effective post-processing algorithm
+    - The proposed optimization algorithm takes as input both the 2D and 3D box estimations b2D, [x, y, z]P, and [w, h, l, θ]3D, as well as a step size σ, termination β, and decay γ parameters.
+    - The algorithm then iteratively steps through θ and compares the projected 3D boxes with b2D using a L1 loss.
+
+- Implementation Details
+    - 
